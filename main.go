@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	endpoint = "http://smb.cidb.gov.my/contractor/contractors/information/%d"
-	min      = 1
-	max      = 217898
+	contractorsEndpoint = "http://smb.cidb.gov.my/contractor/contractors/information/%d"
+	projectsEndpoint    = "http://smb.cidb.gov.my/contractor/contractors/project/%d"
+	min                 = 1
+	max                 = 217898
 )
 
 var (
@@ -36,15 +37,26 @@ func fileprefix(prefix, path string) string {
 	return fmt.Sprintf("%s/%s", prefix, path)
 }
 
+var context string
+
 func main() {
 	var threadCount int
 	var retry string
+	var projects bool
 	flag.IntVar(&threadCount, "thread", 10, "thread count for http requests")
 	flag.StringVar(&retry, "retry", "", "retry file")
+	flag.BoolVar(&projects, "projects", false, "download projects instead of contractors")
 	flag.Parse()
 
+	if projects {
+		context = "projects"
+	} else {
+		context = "contractors"
+	}
+
 	now := time.Now()
-	prefix := fmt.Sprintf("summary_%d%02d%02d_%02d%02d",
+	prefix := fmt.Sprintf("summary_%s_%d%02d%02d_%02d%02d",
+		context,
 		now.Year(), now.Month(), now.Day(),
 		now.Hour(), now.Minute(),
 	)
@@ -64,7 +76,7 @@ func main() {
 	checkerr(err)
 	retrylog := log.New(retryfile, "", 0)
 
-	err = os.MkdirAll("downloaded", 0777)
+	err = os.MkdirAll(fmt.Sprintf("%s_downloaded", context), 0777)
 	checkerr(err)
 
 	var wg sync.WaitGroup
@@ -87,7 +99,7 @@ func main() {
 					donelog.Println(target)
 				}
 
-				<-time.After(time.Duration(rand.Intn(10)) * time.Second)
+				<-time.After(time.Duration(rand.Intn(10)) * time.Millisecond)
 			}
 			wg.Done()
 		}()
@@ -102,6 +114,12 @@ func main() {
 			c <- scanner.Text()
 		}
 	} else {
+		var endpoint string
+		if projects {
+			endpoint = projectsEndpoint
+		} else {
+			endpoint = contractorsEndpoint
+		}
 		for i := min; i < max+1; i++ {
 			target := fmt.Sprintf(endpoint, i)
 			c <- target
@@ -130,7 +148,7 @@ func do(client *http.Client, target string) error {
 	}
 
 	parts := strings.Split(target, "/")
-	filename := fmt.Sprintf("downloaded/%s", parts[len(parts)-1])
+	filename := fmt.Sprintf("%s_downloaded/%s", context, parts[len(parts)-1])
 	dest, err := os.Create(filename)
 	if err != nil {
 		return err
